@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Animal Lens Pro AI</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+    <style>
+        :root { --accent: #00ff88; --bg: #050505; --card: #1a1a1a; }
+        
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: white; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+
+        /* לוגו עליון */
+        .header { height: 60px; display: flex; align-items: center; justify-content: center; background: var(--bg); position: relative; z-index: 10; }
+        .logo { height: 40px; filter: drop-shadow(0 0 8px var(--accent)); }
+
+        /* מסך המצלמה */
+        .camera-container { position: relative; width: 100%; height: calc(100vh - 180px); background: #000; overflow: hidden; }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* כוונת לייזר */
+        .scan-line { position: absolute; left: 0; width: 100%; height: 2px; background: var(--accent); box-shadow: 0 0 15px var(--accent); animation: move 3s infinite linear; z-index: 5; }
+        @keyframes move { 0% { top: 10%; opacity: 0.3; } 50% { top: 90%; opacity: 1; } 100% { top: 10%; opacity: 0.3; } }
+
+        /* כפתורי צד */
+        .side-controls { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 15px; z-index: 20; }
+        .icon-btn { width: 55px; height: 55px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: white; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.1); }
+        .icon-btn.active { background: var(--accent); color: black; }
+
+        /* סטטוס למטה */
+        .footer { height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 20px; }
+        #status { font-size: 0.9rem; color: var(--accent); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* כרטיס תוצאה */
+        .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: var(--card); border-radius: 30px 30px 0 0; padding: 25px; box-sizing: border-box; transition: 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 100; box-shadow: 0 -10px 40px rgba(0,0,0,0.8); }
+        .drawer.open { bottom: 0; }
+        .handle { width: 40px; height: 4px; background: #333; margin: 0 auto 15px; border-radius: 2px; }
+        .wiki-scroll { max-height: 250px; overflow-y: auto; color: #bbb; line-height: 1.6; margin: 15px 0; font-size: 1.05rem; }
+
+        .btn-main { background: var(--accent); color: black; border: none; padding: 15px 45px; border-radius: 30px; font-weight: bold; font-size: 1.1rem; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <img src="logo.png" class="logo" onerror="this.style.display='none'" alt="Animal Lens">
+        <span id="title-text" style="font-weight: bold; margin-right: 10px;">ANIMAL LENS <span style="color:var(--accent)">AI</span></span>
+    </div>
+
+    <div class="camera-container">
+        <div class="scan-line"></div>
+        <video id="video" autoplay playsinline muted></video>
+        
+        <div class="side-controls">
+            <button class="icon-btn" id="torch-btn" onclick="toggleTorch()">🔦</button>
+            <button class="icon-btn" onclick="location.reload()">🔄</button>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div id="status">מערכת מוכנה</div>
+        <button id="start-btn" class="btn-main" onclick="startApp()">התחל סריקה 🚀</button>
+    </div>
+
+    <div id="drawer" class="drawer">
+        <div class="handle"></div>
+        <h2 id="animal-name" style="margin: 0; color: var(--accent); font-size: 1.8rem;">מזהה...</h2>
+        <div id="confidence" style="color: #666; font-size: 0.8rem; margin-top: 5px;"></div>
+        <div id="content" class="wiki-scroll">מחפש מידע ומתרגם...</div>
+        <button class="btn-main" style="width: 100%;" onclick="closeDrawer()">המשך לסרוק</button>
+    </div>
+
+    <script>
+        let model, videoTrack, isTorchOn = false, isProcessing = false;
+        const video = document.getElementById('video');
+
+        async function startApp() {
+            document.getElementById('start-btn').style.display = 'none';
+            document.getElementById('status').innerText = "פותח מצלמה...";
+
+            try {
+                // 1. פתיחת מצלמה קודם כל (כדי שהמשתמש יראה משהו)
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
+                video.srcObject = stream;
+                videoTrack = stream.getVideoTracks()[0];
+
+                // 2. טעינת המודל
+                document.getElementById('status').innerText = "טוען מוח דיגיטלי...";
+                model = await mobilenet.load();
+                
+                document.getElementById('status').innerText = "סריקה פעילה";
+                
+                // 3. תחילת לולאת הזיהוי
+                setInterval(detect, 2000);
+
+            } catch (err) {
+                alert("שגיאה: וודא שאישרת מצלמה ושהאתר עולה ב-HTTPS");
+                console.error(err);
+            }
+        }
+
+        async function detect() {
+            if (isProcessing || !model) return;
+
+            const predictions = await model.classify(video);
+            const topResult = predictions[0];
+
+            if (topResult && topResult.probability > 0.6) {
+                const name = topResult.className.split(',')[0];
+                processAnimal(name, topResult.probability);
+            }
+        }
+
+        async function processAnimal(name, prob) {
+            isProcessing = true;
+            document.getElementById('animal-name').innerText = name;
+            document.getElementById('confidence').innerText = `דיוק זיהוי: ${(prob*100).toFixed(0)}%`;
+            document.getElementById('drawer').classList.add('open');
+
+            try {
+                // משיכה מויקיפדיה
+                const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+                const wikiData = await wikiRes.json();
+                const englishText = wikiData.extract || "No info found.";
+
+                // תרגום אוטומטי לעברית
+                const transRes = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=iw&dt=t&q=${encodeURIComponent(englishText)}`);
+                const transData = await transRes.json();
+                const hebrewText = transData[0].map(x => x[0]).join('');
+
+                // עדכון ממשק
+                document.getElementById('content').innerText = hebrewText;
+
+                // הקראה קולית
+                speak(hebrewText);
+
+            } catch (e) {
+                document.getElementById('content').innerText = "זיהיתי " + name + ", אך חסר חיבור לאינטרנט למידע נוסף.";
+                isProcessing = false;
+            }
+        }
+
+        function speak(text) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text.substring(0, 250));
+            utterance.lang = 'he-IL';
+            utterance.rate = 0.9;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawer').classList.remove('open');
+            window.speechSynthesis.cancel();
+            setTimeout(() => { isProcessing = false; }, 3000);
+        }
+
+        async function toggleTorch() {
+            if (!videoTrack) return;
+            try {
+                isTorchOn = !isTorchOn;
+                await videoTrack.applyConstraints({ advanced: [{ torch: isTorchOn }] });
+                document.getElementById('torch-btn').classList.toggle('active', isTorchOn);
+            } catch (e) {
+                alert("הפנס לא זמין במכשיר/דפדפן זה");
+            }
+        }
+    </script>
+</body>
+</html>
