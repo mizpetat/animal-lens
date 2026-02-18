@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Animal Lens AI 🌍</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+    <style>
+        :root { --accent: #00ff88; --bg: #050505; --warning: #ff3e3e; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: white; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; }
+        
+        /* אזור מצלמה */
+        .viewport { position: relative; width: 100vw; height: 70vh; background: #000; overflow: hidden; }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* כוונת לייזר */
+        .laser { position: absolute; left: 0; width: 100%; height: 2px; background: var(--accent); box-shadow: 0 0 15px var(--accent); animation: scan 3s infinite; z-index: 5; }
+        @keyframes scan { 0% { top: 10%; } 50% { top: 90%; } 100% { top: 10%; } }
+
+        /* התראת חושך */
+        #light-warning { 
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 62, 62, 0.9); padding: 10px 20px; border-radius: 20px;
+            font-weight: bold; font-size: 0.9rem; display: none; z-index: 100;
+        }
+
+        /* כרטיס מידע ויקיפדיה */
+        .info-drawer {
+            position: fixed; bottom: -100%; width: 100%; background: #1a1a1a;
+            border-radius: 30px 30px 0 0; padding: 25px; box-sizing: border-box;
+            transition: 0.5s ease; z-index: 200; box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
+        }
+        .info-drawer.open { bottom: 0; }
+        
+        .wiki-content { font-size: 1rem; line-height: 1.6; color: #ccc; max-height: 200px; overflow-y: auto; }
+        .btn { background: var(--accent); color: black; border: none; padding: 15px 30px; border-radius: 50px; font-weight: bold; cursor: pointer; }
+        
+        .controls { position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 10; }
+        .circle-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: rgba(255,255,255,0.2); color: white; font-size: 1.2rem; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="light-warning">⚠️ חשוך מדי - הפעל פנס לזיהוי טוב יותר</div>
+
+    <div class="viewport">
+        <div class="laser"></div>
+        <video id="video" autoplay playsinline muted></video>
+        
+        <div class="controls">
+            <button class="circle-btn" onclick="toggleTorch()">🔦</button>
+            <button class="circle-btn" onclick="location.reload()">🔄</button>
+        </div>
+    </div>
+
+    <div style="padding: 20px; text-align: center;">
+        <h2 id="status-text">טוען מוח דיגיטלי...</h2>
+        <button id="start-btn" class="btn" onclick="init()">התחל סריקה 🚀</button>
+    </div>
+
+    <div id="drawer" class="info-drawer">
+        <div style="width: 50px; height: 5px; background: #333; margin: 0 auto 15px; border-radius: 5px;"></div>
+        <h2 id="animal-name" style="margin: 0; color: var(--accent);">מזהה...</h2>
+        <p id="confidence-score" style="color: #888; margin-bottom: 15px;"></p>
+        <div id="wiki-text" class="wiki-content">מושך מידע מהאינטרנט...</div>
+        <br>
+        <button class="btn" style="width: 100%" onclick="closeDrawer()">סגור והמשך</button>
+    </div>
+
+    <canvas id="brightness-canvas" style="display:none;"></canvas>
+
+    <script>
+        let model, videoTrack, isProcessing = false;
+        const video = document.getElementById('video');
+        const drawer = document.getElementById('drawer');
+        const brightnessCanvas = document.getElementById('brightness-canvas');
+
+        async function init() {
+            document.getElementById('start-btn').style.display = 'none';
+            try {
+                model = await mobilenet.load();
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                videoTrack = stream.getVideoTracks()[0];
+                document.getElementById('status-text').innerText = "סורק בזמן אמת...";
+                
+                setInterval(analyzeFrame, 1000); // זיהוי חיה
+                setInterval(checkLight, 2000);  // בדיקת אור
+            } catch (e) { alert("נדרש אישור מצלמה"); }
+        }
+
+        // --- חיישן אור (ניתוח פיקסלים) ---
+        function checkLight() {
+            const ctx = brightnessCanvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, 10, 10); // דוגם ריבוע קטן
+            const data = ctx.getImageData(0, 0, 10, 10).data;
+            let brightness = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+            }
+            const avg = brightness / (data.length / 4);
+            document.getElementById('light-warning').style.display = avg < 50 ? 'block' : 'none';
+        }
+
+        // --- זיהוי AI ---
+        async function analyzeFrame() {
+            if (isProcessing || !model) return;
+            const predictions = await model.classify(video);
+            if (predictions[0].probability > 0.65) {
+                fetchInfo(predictions[0].className.split(',')[0], predictions[0].probability);
+            }
+        }
+
+        // --- משיכת תוכן מהאינטרנט (Wikipedia API) ---
+        async function fetchInfo(name, prob) {
+            isProcessing = true;
+            document.getElementById('animal-name').innerText = name;
+            document.getElementById('confidence-score').innerText = `דיוק: ${(prob*100).toFixed(0)}%`;
+            document.getElementById('drawer').classList.add('open');
+            document.getElementById('wiki-text').innerText = "...Searching Wikipedia";
+
+            try {
+                // פנייה לויקיפדיה באנגלית (לתוצאות הכי טובות)
+                const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+                const data = await response.json();
+                
+                if (data.extract) {
+                    document.getElementById('wiki-text').innerText = data.extract;
+                } else {
+                    document.getElementById('wiki-text').innerText = "לא נמצא מידע מפורט, אך נראה שזהו " + name;
+                }
+            } catch (e) {
+                document.getElementById('wiki-text').innerText = "שגיאת חיבור לאינטרנט.";
+            }
+        }
+
+        function closeDrawer() {
+            drawer.classList.remove('open');
+            setTimeout(() => { isProcessing = false; }, 2000);
+        }
+
+        let torch = false;
+        async function toggleTorch() {
+            torch = !torch;
+            try { await videoTrack.applyConstraints({ advanced: [{ torch: torch }] }); } catch (e) {}
+        }
+    </script>
+</body>
+</html>
