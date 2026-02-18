@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Animal Lens AI Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <style>
+        :root { --accent: #00ff88; --bg: #000; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: white; font-family: system-ui, sans-serif; overflow: hidden; }
+        
+        /* לוגו - תיקון גודל כדי שלא יפריע */
+        .header { height: 60px; display: flex; align-items: center; justify-content: center; background: #111; padding: 5px; }
+        .logo { max-height: 50px; max-width: 90%; object-fit: contain; }
+
+        /* אזור המצלמה */
+        .viewport { position: relative; width: 100%; height: calc(100vh - 180px); background: #000; display: flex; align-items: center; justify-content: center; }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* כוונת סריקה */
+        .scan-line { position: absolute; width: 100%; height: 2px; background: var(--accent); box-shadow: 0 0 15px var(--accent); animation: scan 3s infinite linear; z-index: 5; }
+        @keyframes scan { 0% { top: 10%; } 50% { top: 90%; } 100% { top: 10%; } }
+
+        /* כפתורי צד */
+        .side-btns { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 15px; z-index: 10; }
+        .circle-btn { width: 50px; height: 50px; border-radius: 50%; border: none; background: rgba(255,255,255,0.2); color: white; font-size: 1.2rem; backdrop-filter: blur(5px); }
+
+        /* כרטיס מידע */
+        .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: #1a1a1a; border-radius: 25px 25px 0 0; padding: 25px; box-sizing: border-box; transition: 0.5s; z-index: 100; text-align: right; border-top: 2px solid var(--accent); }
+        .drawer.open { bottom: 0; }
+        .wiki-text { color: #ccc; line-height: 1.6; margin: 15px 0; font-size: 1.1rem; max-height: 150px; overflow-y: auto; }
+        
+        .main-btn { background: var(--accent); color: black; border: none; padding: 15px; border-radius: 15px; font-weight: bold; width: 100%; font-size: 1.2rem; margin-top: 10px; }
+        #status-msg { text-align: center; padding: 10px; color: var(--accent); font-size: 0.8rem; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <img src="logo.png" class="logo" alt="Animal Lens Logo">
+    </div>
+
+    <div class="viewport">
+        <div class="scan-line"></div>
+        <video id="video" autoplay playsinline muted></video>
+        <div class="side-btns">
+            <button class="circle-btn" onclick="toggleTorch()">🔦</button>
+            <button class="circle-btn" onclick="location.reload()">🔄</button>
+        </div>
+    </div>
+
+    <div id="status-msg">מערכת מוכנה</div>
+    
+    <div style="padding: 0 20px;">
+        <button id="start-btn" class="main-btn" onclick="boot()">התחל סריקה 🚀</button>
+    </div>
+
+    <div id="drawer" class="drawer">
+        <h2 id="a-name" style="margin: 0; color: var(--accent);">מזהה...</h2>
+        <div id="a-desc" class="wiki-text">מתרגם מידע לעברית...</div>
+        <button class="main-btn" onclick="closeDrawer()">הבנתי, המשך לסרוק</button>
+    </div>
+
+    <script>
+        let model, videoTrack, isScanning = false;
+        const v = document.getElementById('video');
+
+        async function boot() {
+            document.getElementById('start-btn').style.display = 'none';
+            document.getElementById('status-msg').innerText = "מתחבר למצלמה...";
+
+            try {
+                // שלב 1: פתיחת מצלמה (בצורה אגרסיבית יותר)
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } 
+                });
+                v.srcObject = stream;
+                await v.play(); // חובה כדי למנוע מסך שחור
+                videoTrack = stream.getVideoTracks()[0];
+
+                // שלב 2: טעינת ה-AI
+                document.getElementById('status-msg').innerText = "טוען בינה מלאכותית...";
+                model = await mobilenet.load();
+                
+                document.getElementById('status-msg').innerText = "סריקה פעילה - כוון לחיה";
+                setInterval(check, 2500);
+            } catch (e) {
+                alert("חובה לאשר מצלמה! אם זה לא שואל, נקה הגדרות אתר בדפדפן.");
+                location.reload();
+            }
+        }
+
+        async function check() {
+            if (isScanning || !model) return;
+            const res = await model.classify(v);
+            if (res[0].probability > 0.5) {
+                isScanning = true;
+                handleMatch(res[0].className.split(',')[0]);
+            }
+        }
+
+        async function handleMatch(name) {
+            document.getElementById('a-name').innerText = "זיהיתי: " + name;
+            document.getElementById('drawer').classList.add('open');
+
+            try {
+                const wiki = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+                const data = await wiki.json();
+                const text = data.extract || "אין מידע נוסף זמין.";
+
+                // תרגום לעברית (API חינמי של גוגל)
+                const trans = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=iw&dt=t&q=${encodeURIComponent(text)}`);
+                const transData = await trans.json();
+                const finalHe = transData[0].map(x => x[0]).join('');
+
+                document.getElementById('a-desc').innerText = finalHe;
+                
+                // הקראה קולית
+                const speech = new SpeechSynthesisUtterance(finalHe.substring(0, 200));
+                speech.lang = 'he-IL';
+                window.speechSynthesis.speak(speech);
+
+            } catch (err) {
+                document.getElementById('a-desc').innerText = "זיהיתי " + name + ", אך לא הצלחתי לתרגם את המידע.";
+            }
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawer').classList.remove('open');
+            window.speechSynthesis.cancel();
+            setTimeout(() => isScanning = false, 3000);
+        }
+
+        async function toggleTorch() {
+            if (!videoTrack) return;
+            const settings = videoTrack.getSettings();
+            await videoTrack.applyConstraints({ advanced: [{ torch: !settings.torch }] });
+        }
+    </script>
+</body>
+</html>
