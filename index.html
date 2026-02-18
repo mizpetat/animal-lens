@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Animal Lens AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <style>
+        :root { --accent: #00ff88; --bg: #000; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: white; font-family: system-ui, sans-serif; overflow: hidden; }
+        .header { height: 65px; display: flex; align-items: center; justify-content: center; background: #111; border-bottom: 2px solid var(--accent); }
+        .logo { max-height: 50px; width: auto; }
+        .viewport { position: relative; width: 100%; height: calc(100vh - 180px); background: #000; }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        .scan-line { position: absolute; width: 100%; height: 2px; background: var(--accent); top: 50%; box-shadow: 0 0 15px var(--accent); z-index: 5; }
+        
+        .controls { position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 15px; z-index: 10; }
+        .circle-btn { width: 55px; height: 55px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: white; font-size: 1.5rem; border: 1px solid var(--accent); }
+
+        .drawer { position: fixed; bottom: -100%; left: 0; width: 100%; background: #1a1a1a; border-radius: 30px 30px 0 0; padding: 25px; transition: 0.5s; z-index: 100; border-top: 3px solid var(--accent); text-align: right; }
+        .drawer.open { bottom: 0; }
+        
+        .main-btn { background: var(--accent); color: black; border: none; padding: 20px; border-radius: 20px; font-weight: bold; width: calc(100% - 40px); font-size: 1.3rem; margin: 10px 20px; position: fixed; bottom: 20px; left: 0; z-index: 50; box-shadow: 0 5px 20px rgba(0,255,136,0.3); }
+        #status { text-align: center; color: var(--accent); padding: 5px; font-size: 0.9rem; position: absolute; top: 75px; width: 100%; z-index: 10; }
+    </style>
+</head>
+<body>
+
+    <div class="header"><img src="logo.png" class="logo"></div>
+    <div id="status">מצלמה מוכנה לסריקה</div>
+
+    <div class="viewport">
+        <div class="scan-line"></div>
+        <video id="video" autoplay playsinline muted></video>
+        <div class="controls">
+            <button class="circle-btn" onclick="toggleTorch()">🔦</button>
+            <button class="circle-btn" onclick="location.reload()">🔄</button>
+        </div>
+    </div>
+
+    <button id="scan-btn" class="main-btn" onclick="identify()">סרוק דג מול המצלמה 🎯</button>
+
+    <div id="drawer" class="drawer">
+        <h2 id="a-name" style="margin:0; color:var(--accent); font-size: 1.8rem;">זיהיתי חיה!</h2>
+        <p id="a-desc" style="color:#ddd; line-height:1.6; font-size: 1.1rem; margin: 15px 0;"></p>
+        <button class="main-btn" style="position: static; width: 100%; margin: 10px 0;" onclick="closeDrawer()">המשך לסרוק</button>
+    </div>
+
+    <script>
+        let model, videoTrack;
+        const fishList = ["fish", "shark", "whale", "ray", "eel", "aquarium", "underwater", "reef"];
+
+        // הפעלת מצלמה מיד עם טעינת הדף
+        async function startCam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                const v = document.getElementById('video');
+                v.srcObject = stream;
+                videoTrack = stream.getVideoTracks()[0];
+            } catch (e) { alert("אנא אשר גישה למצלמה"); }
+        }
+        startCam();
+
+        async function identify() {
+            const btn = document.getElementById('scan-btn');
+            btn.innerText = "מנתח נתונים... ⏳";
+            btn.disabled = true;
+
+            if (!model) model = await mobilenet.load();
+            
+            const results = await model.classify(document.getElementById('video'));
+            // מחפש זיהוי חזק שקשור לעולם המים
+            const match = results.find(r => r.probability > 0.3 && fishList.some(k => r.className.toLowerCase().includes(k)));
+
+            if (match) {
+                const name = match.className.split(',')[0];
+                document.getElementById('a-name').innerText = "זיהיתי: " + name;
+                
+                // תרגום מהיר
+                const tr = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=iw&dt=t&q=${encodeURIComponent(name + " is a beautiful sea creature.")}`);
+                const data = await tr.json();
+                
+                document.getElementById('a-desc').innerText = data[0][0][0];
+                document.getElementById('drawer').classList.add('open');
+            } else {
+                alert("לא זוהה דג בבירור. נסה לקרב את המצלמה או לשנות זווית.");
+            }
+            
+            btn.innerText = "סרוק דג מול המצלמה 🎯";
+            btn.disabled = false;
+        }
+
+        function closeDrawer() { document.getElementById('drawer').classList.remove('open'); }
+        
+        async function toggleTorch() {
+            if (videoTrack) {
+                const s = videoTrack.getSettings();
+                await videoTrack.applyConstraints({ advanced: [{ torch: !s.torch }] });
+            }
+        }
+    </script>
+</body>
+</html>
